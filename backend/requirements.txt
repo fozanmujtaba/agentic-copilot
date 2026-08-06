@@ -4,6 +4,14 @@ langchain
 langgraph
 chromadb
 pandas
-langchain-google-genai
 python-dotenv
 langsmith
+
+# LLM providers. Imports in llm.py are lazy, so an unused provider costs
+# disk space but no resident memory.
+langchain-groq
+langchain-google-genai
+
+# Optional providers — install only if you set LLM_PROVIDER to one of them:
+#   pip install langchain-cerebras
+#   pip install langchain-ollama

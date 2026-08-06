@@ -8,6 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv()
 
+from llm import active_config  # noqa: E402  (must follow load_dotenv)
+
 app = FastAPI(
     title="Equity Research Copilot API",
     description="Backend for the multi-agent equity research copilot.",
@@ -28,11 +30,20 @@ async def root():
     return {"status": "ok", "service": "equity-research-copilot", "version": "0.1.0"}
 
 
+def _key_is_real(name: str) -> bool:
+    """A key copied straight from .env.example is not a usable key."""
+    value = os.getenv(name, "").strip()
+    return bool(value) and not value.startswith("your-")
+
+
 @app.get("/health")
 async def health():
-    """Reports whether the API keys the agents will need are actually loaded."""
+    """Reports whether the active LLM provider and tracing are usable."""
+    llm = active_config()
     return {
         "status": "healthy",
-        "gemini_key_loaded": bool(os.getenv("GEMINI_API_KEY")),
-        "langsmith_key_loaded": bool(os.getenv("LANGSMITH_API_KEY")),
+        "llm_provider": llm["provider"],
+        "llm_model": llm["model"],
+        "llm_key_configured": llm["key_configured"],
+        "langsmith_key_loaded": _key_is_real("LANGSMITH_API_KEY"),
     }
