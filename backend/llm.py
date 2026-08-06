@@ -18,9 +18,11 @@ DEFAULT_MODELS = {
 }
 
 # Free tiers rate-limit aggressively (Groq is ~30 req/min), and a fan-out of
-# parallel agents will hit that ceiling. Retry with backoff rather than failing
-# the whole graph on one 429.
-MAX_ATTEMPTS = 5
+# parallel agents will hit that ceiling. Retry is configured on the client
+# rather than via Runnable.with_retry(): the latter returns a RunnableRetry,
+# which drops bind_tools() and with_structured_output() — the two methods the
+# agents rely on most. Client-level retry also honours retry-after headers.
+MAX_RETRIES = 4
 
 
 class MissingAPIKeyError(RuntimeError):
@@ -62,9 +64,10 @@ def get_llm(provider: str | None = None, model: str | None = None, temperature: 
     if provider == "groq":
         from langchain_groq import ChatGroq
 
-        llm = ChatGroq(
+        return ChatGroq(
             model=model,
             temperature=temperature,
+            max_retries=MAX_RETRIES,
             api_key=_require("GROQ_API_KEY", "groq", "https://console.groq.com/keys"),
             **kwargs,
         )
@@ -72,9 +75,10 @@ def get_llm(provider: str | None = None, model: str | None = None, temperature: 
     elif provider == "gemini":
         from langchain_google_genai import ChatGoogleGenerativeAI
 
-        llm = ChatGoogleGenerativeAI(
+        return ChatGoogleGenerativeAI(
             model=model,
             temperature=temperature,
+            max_retries=MAX_RETRIES,
             google_api_key=_require(
                 "GEMINI_API_KEY", "gemini", "https://aistudio.google.com/apikey"
             ),
@@ -87,9 +91,10 @@ def get_llm(provider: str | None = None, model: str | None = None, temperature: 
         except ImportError as e:
             raise _missing_package(provider, "langchain-cerebras") from e
 
-        llm = ChatCerebras(
+        return ChatCerebras(
             model=model,
             temperature=temperature,
+            max_retries=MAX_RETRIES,
             api_key=_require(
                 "CEREBRAS_API_KEY", "cerebras", "https://cloud.cerebras.ai"
             ),
@@ -102,17 +107,12 @@ def get_llm(provider: str | None = None, model: str | None = None, temperature: 
         except ImportError as e:
             raise _missing_package(provider, "langchain-ollama") from e
 
-        # Local inference — no API key, but the model must be pulled first.
-        llm = ChatOllama(model=model, temperature=temperature, **kwargs)
+        # Local inference — no API key, no rate limit, so no retry to configure.
+        # The model must be pulled first: `ollama pull <model>`.
+        return ChatOllama(model=model, temperature=temperature, **kwargs)
 
-    else:
-        raise ValueError(
-            f"Unknown LLM_PROVIDER {provider!r}. Expected one of: {', '.join(DEFAULT_MODELS)}"
-        )
-
-    return llm.with_retry(
-        wait_exponential_jitter=True,
-        stop_after_attempt=MAX_ATTEMPTS,
+    raise ValueError(
+        f"Unknown LLM_PROVIDER {provider!r}. Expected one of: {', '.join(DEFAULT_MODELS)}"
     )
 
 
